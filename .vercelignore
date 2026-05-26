@@ -1,0 +1,7 @@
+.env
+.env.*
+.next
+node_modules
+前端
+*.tsbuildinfo
+.DS_Store
