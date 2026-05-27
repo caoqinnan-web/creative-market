@@ -50,7 +50,8 @@ export function BoxAnimation({ size = 200 }: { size?: number }) {
           width={size}
           height={size}
           sizes={`${size}px`}
-          priority={size >= 200}
+          priority
+          unoptimized
         />
       </div>
     </div>

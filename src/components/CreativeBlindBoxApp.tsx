@@ -17,6 +17,9 @@ import { playUiSound, preloadUiSounds } from "@/lib/sound-effects";
 
 type Stage = "input" | "animation" | "result";
 
+const GENERATION_TIMEOUT_MS = 45000;
+const MAX_GENERATION_ATTEMPTS = 2;
+
 function readSseEvents(buffer: string): {
   remaining: string;
   events: Array<{ event: string; data: string }>;
@@ -48,6 +51,28 @@ async function parseError(response: Response): Promise<string> {
   }
 }
 
+function errorMessage(caught: unknown, timedOut: boolean): string {
+  if (timedOut) {
+    return "生成等待时间太久，请再试一次。";
+  }
+
+  return caught instanceof Error ? caught.message : "生成失败，请稍后再试。";
+}
+
+function shouldRetryGeneration(message: string): boolean {
+  return /load failed|failed to fetch|network|timeout|timed out|interrupted|连接中断|等待时间/i.test(
+    message,
+  );
+}
+
+function safeParseJson(value: string): unknown | null {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
 export function CreativeBlindBoxApp() {
   const [stage, setStage] = useState<Stage>("input");
   const [answers, setAnswers] = useState<AnswerMap>(EMPTY_ANSWERS);
@@ -71,9 +96,6 @@ export function CreativeBlindBoxApp() {
     requestIdRef.current = requestId;
     abortRef.current?.abort();
 
-    const controller = new AbortController();
-    abortRef.current = controller;
-
     setAnswers(nextAnswers);
     setConcepts([]);
     setRawStream("");
@@ -94,85 +116,119 @@ export function CreativeBlindBoxApp() {
       }
     }, 1600);
 
-    let accumulated = "";
-    let sseBuffer = "";
-    let streamError: string | null = null;
-
     try {
-      const response = await fetch("/api/generate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          answers: serializeAnswers(nextAnswers),
-        }),
-        signal: controller.signal,
-      });
+      for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt += 1) {
+        const attemptController = new AbortController();
+        abortRef.current = attemptController;
+        let accumulated = "";
+        let sseBuffer = "";
+        let streamError: string | null = null;
+        let parsedConceptCount = 0;
+        let timedOut = false;
+        const timeoutId = window.setTimeout(() => {
+          timedOut = true;
+          attemptController.abort();
+        }, GENERATION_TIMEOUT_MS);
 
-      if (!response.ok) {
-        throw new Error(await parseError(response));
-      }
+        try {
+          const response = await fetch("/api/generate", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              answers: serializeAnswers(nextAnswers),
+            }),
+            signal: attemptController.signal,
+          });
 
-      if (!response.body) {
-        throw new Error("浏览器没有收到可读取的生成流。");
-      }
+          if (!response.ok) {
+            throw new Error(await parseError(response));
+          }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
+          if (!response.body) {
+            throw new Error("浏览器没有收到可读取的生成流。");
+          }
 
-      while (true) {
-        const { done, value } = await reader.read();
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
 
-        if (done) {
-          break;
-        }
+          while (true) {
+            const { done, value } = await reader.read();
 
-        sseBuffer += decoder.decode(value, { stream: true });
-        const parsed = readSseEvents(sseBuffer);
-        sseBuffer = parsed.remaining;
-
-        for (const item of parsed.events) {
-          if (item.event === "chunk") {
-            const payload = JSON.parse(item.data) as { content?: unknown };
-            if (typeof payload.content !== "string") {
-              continue;
+            if (done) {
+              break;
             }
 
-            accumulated += payload.content;
-            setRawStream(accumulated);
+            sseBuffer += decoder.decode(value, { stream: true });
+            const parsed = readSseEvents(sseBuffer);
+            sseBuffer = parsed.remaining;
 
-            const partialConcepts = parsePartialConcepts(accumulated);
-            if (partialConcepts.length > 0) {
-              setConcepts(partialConcepts);
+            for (const item of parsed.events) {
+              if (item.event === "chunk") {
+                const payload = safeParseJson(item.data) as
+                  | { content?: unknown }
+                  | null;
+
+                if (!payload || typeof (payload as { content?: unknown }).content !== "string") {
+                  continue;
+                }
+
+                accumulated += (payload as { content?: string }).content ?? "";
+                setRawStream(accumulated);
+
+                const partialConcepts = parsePartialConcepts(accumulated);
+                if (partialConcepts.length > 0) {
+                  parsedConceptCount = partialConcepts.length;
+                  setConcepts(partialConcepts);
+                }
+              }
+
+              if (item.event === "error") {
+                const payload = safeParseJson(item.data) as { error?: unknown } | null;
+                streamError =
+                  payload && typeof payload.error === "string"
+                    ? payload.error
+                    : "生成连接中断。";
+              }
             }
           }
 
-          if (item.event === "error") {
-            const payload = JSON.parse(item.data) as { error?: unknown };
-            streamError =
-              typeof payload.error === "string"
-                ? payload.error
-                : "生成连接中断。";
+          const completeConcepts = parseCompleteConcepts(accumulated);
+          if (!completeConcepts || completeConcepts.length === 0) {
+            throw new Error(streamError ?? "返回内容不是可用的创意结果。");
           }
+
+          setConcepts(completeConcepts);
+          playUiSound("reveal");
+          return;
+        } catch (caught) {
+          if (
+            (caught as Error).name === "AbortError" &&
+            !timedOut &&
+            requestIdRef.current !== requestId
+          ) {
+            return;
+          }
+
+          const message = errorMessage(caught, timedOut);
+          const canRetry =
+            attempt < MAX_GENERATION_ATTEMPTS &&
+            parsedConceptCount === 0 &&
+            shouldRetryGeneration(message);
+
+          if (canRetry && requestIdRef.current === requestId) {
+            continue;
+          }
+
+          playUiSound("error");
+          setError(message);
+          setStage("result");
+          return;
+        } finally {
+          window.clearTimeout(timeoutId);
         }
       }
-
-      const completeConcepts = parseCompleteConcepts(accumulated);
-      if (!completeConcepts || completeConcepts.length === 0) {
-        throw new Error(streamError ?? "返回内容不是可用的创意结果。");
-      }
-
-      setConcepts(completeConcepts);
-      playUiSound("reveal");
-    } catch (caught) {
-      if ((caught as Error).name === "AbortError") {
-        return;
-      }
-
-      playUiSound("error");
-      setError(caught instanceof Error ? caught.message : "生成失败，请稍后再试。");
-      setStage("result");
     } finally {
       if (requestIdRef.current === requestId) {
         setIsGenerating(false);

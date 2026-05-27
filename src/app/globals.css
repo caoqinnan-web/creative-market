@@ -809,10 +809,11 @@ button {
 .concept-scroller {
   display: flex;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: visible;
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
   padding-bottom: 8px;
 }
 
@@ -835,13 +836,24 @@ button {
     0 2px 0 rgba(31, 39, 51, 0.04),
     0 18px 36px -24px rgba(31, 39, 51, 0.22);
   position: relative;
-  overflow: hidden;
+  max-height: min(64dvh, 560px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
   border: 1.5px solid #f1f3f7;
+}
+
+.concept-card::-webkit-scrollbar {
+  display: none;
 }
 
 .concept-card.compact {
   border-radius: 22px;
   padding: 18px;
+  max-height: none;
+  overflow: hidden;
   box-shadow: none;
 }
 

@@ -50,6 +50,14 @@ function ConceptSticker({
 }
 
 function normalizeGenerationError(error: string): string {
+  if (/load failed|failed to fetch|network|timeout|timed out/i.test(error)) {
+    return "网络连接不稳定，刚才没有拿到完整结果。请再试一次。";
+  }
+
+  if (error.includes("等待时间")) {
+    return "生成等待时间太久，可能是网络或接口暂时拥挤。请再试一次。";
+  }
+
   if (error.includes("token limit")) {
     return "生成内容超出长度限制，已先保留当前结果。";
   }

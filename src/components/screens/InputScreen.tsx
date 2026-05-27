@@ -214,6 +214,7 @@ export function InputScreen({
                 width={128}
                 height={128}
                 priority
+                unoptimized
               />
             </div>
           </div>

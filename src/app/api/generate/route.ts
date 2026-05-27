@@ -55,9 +55,9 @@ const SYSTEM_PROMPT = `
 - 每个概念必须包含以下字段：
   - concept_name：概念命名，4-12 个汉字，不要带“概念1”
   - one_liner：一句话概念，30 个汉字以内
-  - core_interaction：核心互动，60 个汉字以内，建议 40-48 个汉字
-  - why_you：为什么是「你」，绝不超过 30 个汉字，建议 18-22 个汉字
-  - takeaway：他人带走的礼物，绝不超过 30 个汉字，建议 18-22 个汉字
+  - core_interaction：核心互动，60 个汉字以内
+  - why_you：为什么是「你」，绝不超过 30 个汉字
+  - takeaway：他人带走的礼物，绝不超过 30 个汉字
 `.trim();
 
 type DeepSeekStreamChunk = {
@@ -68,6 +68,14 @@ type DeepSeekStreamChunk = {
     finish_reason?: string | null;
   }>;
 };
+
+function parseDeepSeekChunk(raw: string): DeepSeekStreamChunk | null {
+  try {
+    return JSON.parse(raw) as DeepSeekStreamChunk;
+  } catch {
+    return null;
+  }
+}
 
 function parseAnswers(payload: unknown): string[] | null {
   if (!payload || typeof payload !== "object") {
@@ -135,32 +143,41 @@ export async function POST(request: Request) {
     );
   }
 
-  const deepSeekResponse = await fetch(DEEPSEEK_API_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: DEEPSEEK_MODEL,
-      stream: true,
-      messages: [
-        {
-          role: "system",
-          content: SYSTEM_PROMPT,
-        },
-        {
-          role: "user",
-          content: buildUserPrompt(answers),
-        },
-      ],
-      response_format: {
-        type: "json_object",
+  let deepSeekResponse: Response;
+
+  try {
+    deepSeekResponse = await fetch(DEEPSEEK_API_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
       },
-      temperature: 0.7,
-      max_tokens: 1450,
-    }),
-  });
+      body: JSON.stringify({
+        model: DEEPSEEK_MODEL,
+        stream: true,
+        messages: [
+          {
+            role: "system",
+            content: SYSTEM_PROMPT,
+          },
+          {
+            role: "user",
+            content: buildUserPrompt(answers),
+          },
+        ],
+        response_format: {
+          type: "json_object",
+        },
+        temperature: 0.7,
+        max_tokens: 2400,
+      }),
+    });
+  } catch {
+    return NextResponse.json(
+      { error: "Generation API request failed." },
+      { status: 502 },
+    );
+  }
 
   if (!deepSeekResponse.ok || !deepSeekResponse.body) {
     return NextResponse.json(
@@ -205,7 +222,12 @@ export async function POST(request: Request) {
                 continue;
               }
 
-              const chunk = JSON.parse(dataLine) as DeepSeekStreamChunk;
+              const chunk = parseDeepSeekChunk(dataLine);
+
+              if (!chunk) {
+                continue;
+              }
+
               const choice = chunk.choices?.[0];
               const content = choice?.delta?.content;
 
