@@ -147,17 +147,7 @@ button {
     0 1px 0 rgba(31, 39, 51, 0.04),
     0 8px 24px -16px rgba(31, 39, 51, 0.18);
   border: 1.5px solid rgba(62, 207, 207, 0);
-  transition:
-    border-color 0.2s,
-    box-shadow 0.2s;
   position: relative;
-}
-
-.q-card.focused {
-  border-color: var(--teal);
-  box-shadow:
-    0 1px 0 rgba(31, 39, 51, 0.04),
-    0 14px 28px -18px rgba(62, 207, 207, 0.45);
 }
 
 .q-card .q-head {
@@ -209,9 +199,6 @@ button {
   color: var(--ink);
   resize: none;
   outline: none;
-  transition:
-    background 0.2s,
-    box-shadow 0.2s;
 }
 
 .q-card textarea::placeholder,
@@ -221,8 +208,8 @@ button {
 
 .q-card textarea:focus,
 .q-card input:focus {
-  background: #fffdf4;
-  box-shadow: inset 0 0 0 1.5px var(--teal);
+  background: #f7f8fa;
+  box-shadow: none;
 }
 
 .char-count {
@@ -1000,13 +987,24 @@ button {
 
 .loader {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
+  justify-content: center;
   align-items: center;
-  padding: 40px 20px 60px;
+  gap: 14px;
+  min-height: 0;
+  padding: 18px 20px calc(env(safe-area-inset-bottom) + 72px);
+}
+
+.loader-visual {
+  width: 220px;
+  height: 220px;
+  display: grid;
+  place-items: center;
 }
 
 .loader .status-pill {
-  margin-top: 24px;
+  margin-top: 6px;
 }
 
 .error-state {

@@ -174,8 +174,8 @@ export function ConceptCard({
 function Loader({ conceptCount }: { conceptCount: number }) {
   return (
     <div className="loader">
-      <div style={{ width: 160, height: 160, marginTop: 10 }}>
-        <BoxAnimation size={160} />
+      <div className="loader-visual">
+        <BoxAnimation size={220} />
       </div>
       <div className="status-pill">
         <div className="pulse-dot" />
